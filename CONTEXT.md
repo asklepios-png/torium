@@ -33,6 +33,16 @@ Fork projektista `ahnl/tori-client`. Tori.fi:n epävirallinen API-client (kirjas
 - **Matala/huomio:** EXPIRED-ilmoituksen editointi tekee samalla republishin (sama commit-endpoint) — massa-ajossa yksi edit-kutsu hoitaa molemmat.
 - **Matala:** rinnakkaiset clientit samalla refresh-tokenilla pudottavat autentikoinnin (token rotation; pitkään ajossa oleva prosessi pitää tokenin muistissa eikä lue tiedostoa uudelleen). Älä aja CLI:tä/probeja kun paikallinen MCP-serveri on käynnissä — ja MCP-serverin restart korjaa tilanteen, koska se lukee credentials.json:n tuoreena.
 
+### Windows-tokenkaappaus automatisoitu — RATKAISTU 2026-09-11 ✅
+
+`torium auth setup` vaati Windowsilla manuaalisen DevTools+copy-paste-tempun (koodi vanhenee 30-60 s), koska `auth_setup.py`:ssä oli automaattinen URL-skeeman kaappaus vain macOS:lle (AppleScript-appi) ja Linuxille (`.desktop` + `xdg-mime`) — ei Windowsille.
+
+**Korjaus:** `_register_url_handler_windows()` / `_cleanup_url_handler_windows()` [torium/auth_setup.py](torium/auth_setup.py) rekisteröivät tilapäisen custom URL -protokollan `HKEY_CURRENT_USER\Software\Classes\fi.tori.www.{CLIENT_ID}` (per-user rekisteri, **ei vaadi admin-oikeuksia**) osoittamaan pieneen `.pyw`-apuskriptiin joka kirjoittaa saapuvan URL:n `CALLBACK_FILE`-tiedostoon — sama kaava kuin muillakin alustoilla. `CALLBACK_FILE` muutettiin alustariippumattomaksi (`tempfile.gettempdir()`, oli kovakoodattu `/tmp/...`, joka ei toimi Windowsilla samoin).
+
+**Live-vahvistettu 2026-09-11:** koko `torium auth setup` -flow ajettiin läpi Windows 11:ssä ilman manuaalista väliintuloa — selain avautui, kirjautuminen onnistui, redirect kaapattiin automaattisesti, refresh+bearer-tokenit tallentuivat `credentials.json`iin.
+
+**Sivuhuomio (ei toteutettu, jää talteen):** Android-sovelluksen HTTP Toolkit -kaappaus (2026-09-11) paljasti että appi käyttää samaa `login.vend.fi`/`id.tori.fi`-ketjua loppuun asti (`id.tori.fi/code/{code}` → `login.vend.fi/oauth/finalize?data=...` → custom scheme) ennenkuin siirtyy samaan `oauth/token` → `api/2/oauth/exchange` → `public/login`-sekvenssiin jota `auth.py:get_tori_token()` jo käyttää. Ei tutkittu tarkemmin koska rekisteriratkaisu jo poisti ongelman kokonaan; `oauth/finalize`-vastauksen `Location`-header voisi paljastaa vielä suoremman reitin jos tätä joskus halutaan tutkia lisää.
+
 ## Seuraavat askeleet
 
 1. Käynnistä paikallinen MCP-serveri uudelleen (lataa korjatun koodin JA tuoreen tokenin — CLI-testit 13.7. rotatoivat sen).

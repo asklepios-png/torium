@@ -78,7 +78,7 @@ def _ad_type_from_title(title: str) -> str:
 
 @auth_app.command("setup")
 def auth_setup(
-    manual: bool = typer.Option(False, "--manual", help="Paste redirect URL manually (required on Windows/Linux if auto-capture fails)"),
+    manual: bool = typer.Option(False, "--manual", help="Paste redirect URL manually (fallback if auto-capture fails on this platform)"),
 ):
     """One-time browser OAuth flow. Saves refresh token to ~/.config/torium/credentials.json."""
     from torium.auth_setup import main as _run_setup
