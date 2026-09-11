@@ -4,7 +4,7 @@ Fork projektista `ahnl/tori-client`. Tori.fi:n epävirallinen API-client (kirjas
 
 ## Nykytila
 
-- **Toimii:** haku, omat ilmoitukset, viestit, suosikit, create_listing (kuvineen), republish_listing, dispose/delete, **get_seller_listings (myyjän muut ilmoitukset — uusi 2026-08-11)**.
+- **Toimii:** haku, omat ilmoitukset, viestit, suosikit, create_listing (kuvineen), republish_listing, dispose/delete, get_seller_listings (myyjän muut ilmoitukset — 2026-08-11), **get_seller_feedback (myyjän/ostajan saamat palautteet — uusi 2026-09-11, live-vahvistettu)**.
 - **Uutta 2026-08-11 — "myyjän muut ilmoitukset" RATKAISTU:** kaapattiin natiivi gateway-endpoint (`/org/SEARCH_ID_BAP_COMMON?orgId=`, service `SEARCH-QUEST-RC`) Android-appista emulaattori+HTTP-Toolkitilla. Toteutus `seller_ads()` + MCP `get_seller_listings`, testit läpi. **Vielä live-vahvistamatta oikeaa APIa vasten** (unit-testit vihreät). Ks. Seuraavat askeleet + osio alempana.
 - **Korjattu ja live-vahvistettu 2026-07-13:** edit_listing / listings.edit() — hiljainen tietohäviö korjattu (ks. alla). Testattu oikeaa APIa vasten: 12265237 (EXPIRED → hinta 30 € + republish onnistui), 20701613 (kuvaus meni liveksi). Paikallinen MCP-serveri pitää käynnistää uudelleen ennen kuin korjaus on MCP-työkaluissa käytössä (editable install; lisäksi CLI-testit rotatoivat refresh-tokenin, jonka vanha serveriprosessi pitää muistissa).
 - **Uutta 2026-08-10:** `listings.owner(ad_id)` ja MCP:n `get_listing` palauttavat myyjän tunnisteen (`owner_id`). Tämä on vaihe 0 "myyjän muut ilmoitukset" -ominaisuudesta (ks. Seuraavat askeleet). Testit: `tests/test_seller_identity.py`, ei verkkoa.
@@ -75,6 +75,26 @@ Kokeiltu perusteellisesti. `auth.py`:n virta laajennettiin: refresh → access �
 - **KUOLLUT:** `AD-SUMMARIES /search?ownerId=X` ohittaa parametrin — palauttaa AINA omat ilmoitukset (bearer-tokenista johdettu käyttäjä). Vahvistettu: neljä eri ownerId-arvoa → identtinen total=144.
 - **KUOLLUT:** `SEARCH-QUEST-RC` seller_id/owner_id/user_id → 400 (tuntematon parametri).
 - Ratkaisu vaatii todellisen sovellusliikenteen: **Android-emulaattori (Google APIs -image, `adb root` → system-store-varmenne) + mitmproxy**, katso mitä Tori-appi kutsuu myyjäprofiilinäkymässä. Rootiton laite ei toiminut (käyttäjä-CA:han ei luoteta). Kun polku + `finn-gw-service` (+ mahdollinen X-Client-Id-arvo) tiedetään, `signing.gw_key()` allekirjoittaa sen ja toteutus on triviaali.
+
+### "Myyjän/ostajan saamat palautteet" (arvostelut) — RATKAISTU 2026-09-11 ✅
+
+Tavoite: `get_seller_feedback(ad_id)` → myyjän saamat arvostelut (teksti, tähtiarvio, antaja). **Toteutettu portable MCP-työkaluna** samalla Android-emulaattori+HTTP Toolkit -kaappauksella kuin `get_seller_listings`:lle, mutta tällä kertaa löytyi suoraan oikea cookie-vapaa endpoint (ei tarvinnut arvata polkuja kuten vaiheen 3 TRUST-PROFILE-API-yritykset aiemmin).
+
+**Endpoint (kaapattu Android-appista Android Studio -emulaattori + HTTP Toolkit, emulaattori API 33 "tori_capture"):**
+```
+GET /v2/public/users/{owner_urn}/feedback?pageSize=50&page=0
+    host:            apps-gw-poc.svc.tori.fi   (sama kuin BASE_URL)
+    finn-gw-service: TRUST-FEEDBACK-API
+    X-Client-Id:     mikä tahansa ei-tyhjä arvo (sama kuten TRUST-PROFILE-API:lla; ilman tätä 400)
+    Vastaus: { "paging": {current,pageCount,pageSize,totalCount}, "feedbacks": [...] }
+```
+- `owner_urn` on adview'n `meta.ownerUrn` (`sdrn:aurora.tori.fi:user:{id}`) — SAMA kenttä jota `owner()` jo palauttaa, ei tarvinnut lisätä uutta hakua.
+- Jokainen `feedbacks[]`-alkio: `role` (BUYER/SELLER — antajan rooli siinä kaupassa), `name`, `verified`, `overallScore`/`numberOfReceivedFeedbacks` (**antajan OMA maine**, ei kohteen — eri arvo joka rivillä), ja sisäkkäinen `feedback`-lohko: `feedbackId`, `textReview` (voi olla null — pelkkä tähtiarvio ilman tekstiä), `score` (0–1), `givenAt` (ISO), `reply` (myyjän vastaus, tavattu null).
+- Live-vahvistettu: 868071115, 8 arvostelua, yksi sivu (`pageCount:1`).
+
+**Toteutus:** `listings.feedback(owner_urn, max_results=None)` (kirjasto) + MCP-työkalu `get_seller_feedback(ad_id)` (owner→feedback→kompakti lista). `client.py`:n `_request`/`get` laajennettiin `extra_headers`-parametrilla X-Client-Id-otsaketta varten (ainoa endpoint toistaiseksi joka sitä tarvitsee ohi `_STATIC_HEADERS`-listan). Testit: `tests/test_seller_feedback.py` (4 kpl, mock-client, ei verkkoa).
+
+**Arkkitehtuurihuomio:** tämä oli paljon helpompi löytää kuin ilmoituslista — `/reviews`-polkuarvaukset (vaihe 3, ks. alla) olivat kaikki vääriä, mutta oikea palvelunimi oli `TRUST-FEEDBACK-API` eikä `TRUST-PROFILE-API`. Kannattaa jatkossa katsoa **kaikkia** `FINN-GW-Service`-otsikon arvoja kaappauksesta, ei vain päätellä nimeä ilmoituslista-palvelusta.
 
 **Vaihe 2 — SELAINADAPTERI: suositeltu toteutusreitti.**
 Ilmoituslista on **täysin SSR** (podlet `trust-public-profile-layout`); ainoa client-XHR on `/profile/podium-resource/header/api` (yläpalkki) — cookie-autentikoitua JSON-endpointtia EI ole. Skill joka avaa `tori.fi/profile/ads?userId={owner_id}` Claude-in-Chromessa (kirjautunut sessio) ja lukee kortit accessibility-puusta: hinta, ToriDiili, sijainti, päiväys, linkki `/{adId}`. Todennettu toimivaksi 2026-08-10. Torium antaa `owner_id`:n (`get_listing`), jokainen kortti-adId voidaan rikastaa `get_listing`illä. Sama kuvio kuin `vinted-era`-skillissä.

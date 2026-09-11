@@ -683,6 +683,54 @@ def get_seller_listings(ad_id: int) -> str:
 
 
 @mcp.tool()
+def get_seller_feedback(ad_id: int) -> str:
+    """
+    Get the buyer/seller feedback (reviews) left for the seller of a given ad.
+
+    Takes any ad_id, finds who is selling it (owner from the adview), and returns
+    the reviews other users have left for that person — as buyer and/or seller.
+    Use this to answer "what feedback has this seller gotten?" or "is this seller
+    trustworthy?".
+
+    ad_id: A listing ID (integer) belonging to the seller you're interested in.
+
+    Returns each review with the reviewer's name, their role in that trade
+    (BUYER/SELLER — i.e. whether they bought from or sold to this person), the
+    review text (may be null — a star-only review with no comment), a 0-1 score,
+    the date given, and the reviewer's own overall_score/review_count (their
+    own reputation as a signal of how established that reviewer is — NOT the
+    seller's own aggregate score, which this endpoint doesn't expose directly).
+    """
+    c = _get_client()
+    owner = c.listings.owner(ad_id)
+    owner_urn = owner.get("owner_urn")
+    if not owner_urn:
+        return json.dumps(
+            {"error": "Could not determine the seller (owner_urn) for this ad.", "ad_id": ad_id},
+            ensure_ascii=False,
+        )
+    entries = c.listings.feedback(owner_urn)
+    out = []
+    for entry in entries:
+        fb = entry.get("feedback") or {}
+        out.append({
+            "reviewer_name": entry.get("name", ""),
+            "role": entry.get("role", ""),
+            "text": fb.get("textReview"),
+            "score": fb.get("score"),
+            "given_at": fb.get("givenAt"),
+            "reply": fb.get("reply"),
+            "verified": entry.get("verified"),
+            "reviewer_overall_score": entry.get("overallScore"),
+            "reviewer_review_count": entry.get("numberOfReceivedFeedbacks"),
+        })
+    return json.dumps(
+        {"owner_id": owner.get("owner_id"), "count": len(out), "feedback": out},
+        ensure_ascii=False,
+    )
+
+
+@mcp.tool()
 def get_search_categories(query: str = "") -> str:
     """
     Search categories by Finnish name. Returns category codes for search_listings().

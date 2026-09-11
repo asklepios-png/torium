@@ -204,6 +204,7 @@ See [Local install (MCP and CLI)](#local-install-mcp-and-cli) above for setup. T
 | `search_my_listings`  | Own listings with full detail; returns all (auto-paginated)                  |
 | `get_listing`         | Full detail of any listing: title, description, price, extras, image URLs, `owner_id` |
 | `get_seller_listings` | Other listings by the same seller as a given ad (via `owner_id`)             |
+| `get_seller_feedback` | Buyer/seller reviews received by the seller of a given ad                    |
 | `get_listing_stats`   | Clicks / messages / favorites for a listing                                  |
 | `get_create_categories` | Find category IDs by Finnish keyword (for create_listing)                  |
 | `create_listing`      | Create and submit a new free listing, with optional ToriDiili shipping        |

@@ -35,6 +35,10 @@ _IMG_BASE = "https://img.tori.net/dynamic/default/"
 # Android app 2026-08-11 (GET /org/SEARCH_ID_BAP_COMMON?client=…&orgId=…&include_anonymous=false).
 _ORG_SEARCH_KEY = "SEARCH_ID_BAP_COMMON"
 
+# TRUST-* gateway services 400 without an X-Client-Id header; any non-empty
+# value passes the filter (the Android app literally sends "X-Client-Id").
+_TRUST_CLIENT_ID_HEADER = {"X-Client-Id": "tori"}
+
 # Publish as Basic (free): urn:product:package-specification:10
 _PUBLISH_BASIC_BODY = b"choices=urn%3Aproduct%3Apackage-specification%3A10"
 
@@ -244,6 +248,45 @@ class ListingsAPI:
                 break
             page += 1
         return all_docs
+
+    def feedback(self, owner_urn: str, max_results: Optional[int] = None) -> list:
+        """
+        Buyer/seller feedback (reviews) left for a user, by their ``owner_urn``
+        (``sdrn:aurora.tori.fi:user:{id}``, from ``owner(ad_id)["owner_urn"]``).
+
+        Hits TRUST-FEEDBACK-API — captured from the Android app 2026-09-11
+        (GET /v2/public/users/{urn}/feedback?pageSize=&page=). Requires an
+        X-Client-Id header with any non-empty value (same quirk as
+        TRUST-PROFILE-API); the gateway 400s without it.
+
+        Returns the raw list of ``feedbacks`` entries, each with a nested
+        ``feedback`` block (feedbackId, textReview, score, givenAt, reply) plus
+        the reviewer's role/name/verified/overallScore. Server caps pages at
+        ``pageSize``; this loops via ``page`` until ``paging.pageCount`` is reached.
+
+        max_results: stop once this many are collected. None → fetch every page.
+        """
+        all_feedbacks: list = []
+        page = 0
+        page_size = 50
+        while True:
+            params = {"pageSize": page_size, "page": page}
+            qs = urllib.parse.urlencode(params)
+            data = self._c.get(
+                f"/v2/public/users/{owner_urn}/feedback?{qs}",
+                "TRUST-FEEDBACK-API",
+                extra_headers=_TRUST_CLIENT_ID_HEADER,
+            )
+            batch = data.get("feedbacks", [])
+            all_feedbacks.extend(batch)
+            if max_results is not None and len(all_feedbacks) >= max_results:
+                return all_feedbacks[:max_results]
+            paging = data.get("paging") or {}
+            page_count = paging.get("pageCount")
+            if not batch or not isinstance(page_count, int) or page + 1 >= page_count:
+                break
+            page += 1
+        return all_feedbacks
 
     def dispose(self, ad_id: int) -> None:
         """Merkitse myydyksi — mark listing as sold. No body. Returns 204."""

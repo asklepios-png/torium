@@ -113,6 +113,7 @@ class ToriClient:
         path: str,
         service: str,
         json_body: Optional[dict] = None,
+        extra_headers: Optional[dict] = None,
         _retried: bool = False,
     ) -> requests.Response:
         parsed = urllib.parse.urlparse(path)
@@ -128,6 +129,8 @@ class ToriClient:
             "finn-gw-service": service,
             "finn-gw-key": gw_key(method, clean_path, service, body, query),
         }
+        if extra_headers:
+            headers.update(extra_headers)
         if body:
             headers["content-type"] = "application/json; charset=UTF-8"
 
@@ -138,7 +141,7 @@ class ToriClient:
 
         if resp.status_code in (401, 403) and not _retried:
             self.auth.refresh()
-            return self._request(method, path, service, json_body, _retried=True)
+            return self._request(method, path, service, json_body, extra_headers, _retried=True)
 
         if not resp.ok:
             body_preview = resp.text[:500] if resp.text else "(empty)"
@@ -148,8 +151,8 @@ class ToriClient:
             )
         return resp
 
-    def get(self, path: str, service: str) -> dict:
-        return self._request("GET", path, service).json()
+    def get(self, path: str, service: str, extra_headers: Optional[dict] = None) -> dict:
+        return self._request("GET", path, service, extra_headers=extra_headers).json()
 
     def post(self, path: str, service: str, json_body: Optional[dict] = None) -> dict:
         resp = self._request("POST", path, service, json_body)
