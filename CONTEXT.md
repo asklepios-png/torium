@@ -27,6 +27,14 @@ Fork projektista `ahnl/tori-client`. Tori.fi:n epävirallinen API-client (kirjas
 - **Myyjän tunniste luetaan adview'n `meta`-lohkosta, ei `ad`-rungosta.** Adview'ssa ei ole minkäänlaista myyjäkenttää ilmoituksen sisällössä — vain `meta.ownerId` ja `meta.ownerUrn` (`sdrn:aurora.tori.fi:user:{id}`). Siksi `owner_from_adview()` on oma pieni funktionsa: sama uutto tarvitaan sekä kirjastossa että MCP-kääreessä, ja se on ainoa silta ilmoituksesta myyjään.
 - **update() heittää virheen validointirikkeistä** (`meta-data.violations`, tulevat 200-statuksella) mutta ei julkaise — julkaisu vain edit():n kautta, jotta create():n oma sekvenssi ei riko.
 
+### Etäyhteyden (connector) toistuva putoaminen — RATKAISTU 2026-09-11 ✅
+
+**Oire:** torium.fi-connector putosi pois herkästi; paikallinen (stdio) MCP-serveri ei koskaan.
+
+**Juurisyy:** [docker-compose.yml](docker-compose.yml) — Watchtower pollasi `ghcr.io/ahnl/torium:latest`-imagea 60 s välein ja restarttasi `torium-mcp`-kontin heti uuden löydyttyä. GitHub Actionsin deploy-workflow buildaa ja pushaa `:latest`-tagin **joka pushilla `main`-branchiin**, ei vain julkaisuilla. `torium-mcp` puhuu `streamable-http`:ia (pitkäikäinen yhteys) — kontin restart katkaisee aktiivisen connector-session välittömästi. Paikallinen serveri on oma prosessi käyttäjän koneella eikä altistu tälle.
+
+**Korjaus:** poistettu `torium-mcp` Watchtowerin vahtimista konteista `docker-compose.yml`:ssä (jäljellä vain `torium-web`). Päivitys nyt manuaalinen: `docker compose pull torium-mcp && docker compose up -d torium-mcp`, ajetaan silloin kun tiedetään ettei aktiivista käyttöä ole meneillään.
+
 ## Tunnetut riskit
 
 - **Matala:** read-backin aikakatkaisu (~5,5 min) voi antaa vääriä hälytyksiä jos Torin propagaatio on poikkeuksellisen hidas — mutta ei koskaan väärää onnistumiskuittausta. Tarkista `get_listing`illä ennen uudelleenyritystä.
