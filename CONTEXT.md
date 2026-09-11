@@ -53,9 +53,27 @@ Fork projektista `ahnl/tori-client`. Tori.fi:n epävirallinen API-client (kirjas
 
 ## Seuraavat askeleet
 
-1. Käynnistä paikallinen MCP-serveri uudelleen (lataa korjatun koodin JA tuoreen tokenin — CLI-testit 13.7. rotatoivat sen).
+1. Käynnistä paikallinen MCP-serveri uudelleen (lataa `get_seller_feedback`in JA tuoreen tokenin — `torium auth setup` 11.9. rotatoi sen).
 2. Massa-ajo 62 EXPIRED-ilmoitukselle: 11.7. tekstipäivitykset ovat jo luonnosrevisioissa, joten `republish_listing` committoi ne samalla — TAI aja `edit_listing` uusilla teksteillä (varmistetumpi: read-back todistaa). SpineGymin kuvausteksti pitää joka tapauksessa päivittää ("Nyt 75 €" → 30 €).
 3. Tarkista massa-ajon jälkeen pistokokein pari ilmoitusta `get_listing`illä (muista ~minuuttien propagaatio).
+4. **Oma hostattu MCP-serveri forkista (kännykkäkäyttö)** — ks. suunnitelma alla. Tee tuoreessa istunnossa; Sonnet riittää (compose/workflow/Caddy-konfiguraatiota, ei vaikeaa päättelyä).
+
+### Suunnitelma: oma hostattu connector forkista (kirjattu 2026-09-11, ei aloitettu)
+
+**Miksi:** torium.fi-connector on ahnl:n palvelimella, jota emme hallitse. Ylävirta on ollut hiljainen 22.6. alkaen — PR #12 (13.7.) ja #13 (11.8.) odottavat ilman reaktiota; #14 (Watchtower-korjaus) ja #15 (Windows-auth) avattu 11.9. samoin. Kännykällä Claude tarvitsee **julkisen HTTPS-osoitteen** (custom connector), joten paikallinen stdio-serveri ei auta poissa kotikoneelta. Oma deployment forkista tuo kaikki uudet ominaisuudet (`get_seller_listings`, `get_seller_feedback`, edit_listing-korjaus, Watchtower-korjaus) heti käyttöön riippumatta ahnl:sta.
+
+**Mitä repossa on jo valmiina:** `Dockerfile` (python:3.12-slim + `uv pip install .`), `.github/workflows/*.yml` (buildaa + pushaa imagen `main`-pushilla, linux/arm64), `docker-compose.yml` (torium-mcp streamable-http + torium-web + Watchtower), `torium-mcp --transport streamable-http --host 0.0.0.0 --port 5001 --base-url https://…` OAuth-kirjautumisella (`mcp_auth.py`), tokenit SQLitessa (`mcp_storage.py`, volume `./data:/root/.config/torium`), sähköposti-allowlist (`torium-mcp allowlist add <email>`, tai `TORIUM_OPEN=1` = kaikille avoin — ÄLÄ käytä omassa instanssissa). `RESEND_API_KEY` tarvitaan vain sähköpostiominaisuuteen (mcp_server.py:1154) — voi jättää tyhjäksi.
+
+**Askeleet:**
+1. **CI forkkiin:** workflow'ssa `tags: ghcr.io/ahnl/torium:latest` → `ghcr.io/asklepios-png/torium:latest` (ja `torium-web` vastaavasti; web voi jättää pois jos ei tarvita). Tarkista `platforms:` — `linux/arm64` sopii ARM-VPS:lle (Hetzner CAX), muuten `linux/amd64`. Varmista että forkin Actions on päällä ja paketin näkyvyys sallii pullin palvelimelta (GHCR public tai PAT).
+2. **Palvelin:** pieni VPS (~5 €/kk; Hetzner CAX11/CX22 tai DigitalOcean) TAI konttialusta (Fly.io/Railway). Docker + docker compose. Kotikone ei kelpaa (usein poissa/sammuksissa).
+3. **Osoite + TLS:** aliverkkotunnus (esim. `tori.<oma-domain>`) → palvelimen IP. Caddy reverse proxyna: `tori.<domain> { reverse_proxy torium-mcp:5001 }` — hoitaa Let's Encryptin automaattisesti. `--base-url https://tori.<domain>` täsmälleen samaksi.
+4. **compose omaan instanssiin:** image → oma GHCR-polku; `TORIUM_OPEN` POIS; `TORIUM_BASE_URL` + `--base-url` omaan osoitteeseen; Watchtower vahtii vain webiä (jo korjattu `c81641d`) tai jätetään kokonaan pois ja päivitetään käsin; `./data`-volume säilyy (tokenit + allowlist).
+5. **Allowlist:** `docker compose exec torium-mcp torium-mcp allowlist add asklepiosconsultingoy@gmail.com`.
+6. **Connector claude.ai:hin:** Settings → Connectors → Add custom → URL `https://tori.<domain>/mcp` (tarkista polku `mcp_server.py`stä) → OAuth-kirjautuminen (sama "liitä redirect-URL" -lomake kuin torium.fi:ssä, `mcp_auth.py`). Näkyy sen jälkeen myös mobiiliapissa.
+7. **Varmistus kännykällä:** `get_listing` + `get_seller_feedback` jollain ilmoituksella.
+
+**Riskit / huomiot:** SQLite-tokenit ovat levyllä → ota `./data` backupiin; palvelimen päivitykset omalla vastuulla; jos ahnl myöhemmin mergeää PR:t, oma instanssi voi seurata joko forkin tai ylävirran `main`ia — päätetään silloin.
 
 ### "Myyjän muut ilmoitukset" — RATKAISTU 2026-08-11 ✅
 
