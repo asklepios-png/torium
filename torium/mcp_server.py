@@ -42,6 +42,8 @@ from mcp.server.fastmcp import FastMCP, Image
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
 
+from .listings import owner_urn_from_user_id
+
 # ── Module-level state ────────────────────────────────────────────────────────
 # _storage: None in stdio mode; set to Storage instance in HTTP/remote mode.
 # _client_cache: one ToriClient per tori user_id, populated lazily on first tool call.
@@ -683,16 +685,18 @@ def get_seller_listings(ad_id: int) -> str:
 
 
 @mcp.tool()
-def get_seller_feedback(ad_id: int) -> str:
+def get_seller_feedback(ad_id: Optional[int] = None, user_id: Optional[int] = None) -> str:
     """
-    Get the buyer/seller feedback (reviews) left for the seller of a given ad.
+    Get the buyer/seller feedback (reviews) left for a Tori.fi user.
 
-    Takes any ad_id, finds who is selling it (owner from the adview), and returns
-    the reviews other users have left for that person — as buyer and/or seller.
-    Use this to answer "what feedback has this seller gotten?" or "is this seller
-    trustworthy?".
+    Pass EITHER an ad_id (any listing belonging to the seller you're interested
+    in — the owner is resolved from its adview) OR a user_id directly (the
+    numeric id from a tori.fi/profile/... URL's userId param, e.g.
+    "https://www.tori.fi/profile/reviews?userId=919018516" → user_id=919018516).
+    user_id skips the adview lookup and is preferred when you already have it.
 
-    ad_id: A listing ID (integer) belonging to the seller you're interested in.
+    Use this to answer "what feedback has this seller gotten?" or "is this
+    seller trustworthy?".
 
     Returns each review with the reviewer's name, their role in that trade
     (BUYER/SELLER — i.e. whether they bought from or sold to this person), the
@@ -702,8 +706,15 @@ def get_seller_feedback(ad_id: int) -> str:
     seller's own aggregate score, which this endpoint doesn't expose directly).
     """
     c = _get_client()
-    owner = c.listings.owner(ad_id)
-    owner_urn = owner.get("owner_urn")
+    if user_id is not None:
+        owner_id, owner_urn = user_id, owner_urn_from_user_id(user_id)
+    elif ad_id is not None:
+        owner = c.listings.owner(ad_id)
+        owner_id, owner_urn = owner.get("owner_id"), owner.get("owner_urn")
+    else:
+        return json.dumps(
+            {"error": "Pass either ad_id or user_id."}, ensure_ascii=False
+        )
     if not owner_urn:
         return json.dumps(
             {"error": "Could not determine the seller (owner_urn) for this ad.", "ad_id": ad_id},
@@ -725,7 +736,7 @@ def get_seller_feedback(ad_id: int) -> str:
             "reviewer_review_count": entry.get("numberOfReceivedFeedbacks"),
         })
     return json.dumps(
-        {"owner_id": owner.get("owner_id"), "count": len(out), "feedback": out},
+        {"owner_id": owner_id, "count": len(out), "feedback": out},
         ensure_ascii=False,
     )
 

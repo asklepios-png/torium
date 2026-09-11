@@ -55,6 +55,12 @@ def _norm_field(v):
     return v
 
 
+def owner_urn_from_user_id(user_id: int) -> str:
+    """Build the sdrn owner_urn from a raw numeric user id (e.g. from a
+    tori.fi/profile/... URL's userId query param), without an adview lookup."""
+    return f"sdrn:aurora.tori.fi:user:{user_id}"
+
+
 def owner_from_adview(data: dict) -> dict:
     """
     Pull the seller identity out of an adview response.

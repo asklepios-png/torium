@@ -138,8 +138,10 @@ class _FakeListings:
     def __init__(self, owner, entries):
         self._owner = owner
         self._entries = entries
+        self.owner_calls = 0
 
     def owner(self, ad_id):
+        self.owner_calls += 1
         return self._owner
 
     def feedback(self, owner_urn):
@@ -154,13 +156,14 @@ class _FakeClient:
 class GetSellerFeedbackToolTest(unittest.TestCase):
     """The MCP tool's compaction is its only real logic — pin its output shape."""
 
-    def _run(self, owner, entries):
+    def _run(self, owner, entries, ad_id=46592793, user_id=None, client=None):
         import json
         from unittest.mock import patch
         from torium import mcp_server
 
-        with patch.object(mcp_server, "_get_client", return_value=_FakeClient(owner, entries)):
-            return json.loads(mcp_server.get_seller_feedback(46592793))
+        client = client or _FakeClient(owner, entries)
+        with patch.object(mcp_server, "_get_client", return_value=client):
+            return json.loads(mcp_server.get_seller_feedback(ad_id=ad_id, user_id=user_id))
 
     def test_compacts_entries(self):
         out = self._run(
@@ -192,6 +195,27 @@ class GetSellerFeedbackToolTest(unittest.TestCase):
 
         self.assertIn("error", out)
         self.assertEqual(out["ad_id"], 46592793)
+
+    def test_user_id_builds_urn_directly_and_skips_owner_lookup(self):
+        client = _FakeClient({"owner_id": None, "owner_urn": ""}, [_entry(1, "A", "x")])
+
+        out = self._run(None, None, ad_id=None, user_id=919018516, client=client)
+
+        self.assertEqual(client.listings.owner_calls, 0)
+        self.assertEqual(out["owner_id"], 919018516)
+        self.assertEqual(out["count"], 1)
+
+    def test_user_id_takes_precedence_over_ad_id(self):
+        client = _FakeClient({"owner_id": 1, "owner_urn": "wrong"}, [])
+
+        self._run(None, None, ad_id=46592793, user_id=919018516, client=client)
+
+        self.assertEqual(client.listings.owner_calls, 0)
+
+    def test_neither_ad_id_nor_user_id_returns_error(self):
+        out = self._run(None, None, ad_id=None, user_id=None)
+
+        self.assertIn("error", out)
 
 
 if __name__ == "__main__":
