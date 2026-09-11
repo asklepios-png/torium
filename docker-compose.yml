@@ -31,4 +31,9 @@ services:
     environment:
       - WATCHTOWER_POLL_INTERVAL=60
       - DOCKER_API_VERSION=1.44
-    command: torium-torium-mcp-1 torium-torium-web-1
+    # torium-mcp is intentionally NOT watched: it serves a long-lived
+    # streamable-http MCP connection, and every push to main rebuilds+pushes
+    # :latest — auto-restarting on each new image was killing active connector
+    # sessions mid-use. Update it manually when convenient:
+    #   docker compose pull torium-mcp && docker compose up -d torium-mcp
+    command: torium-torium-web-1
