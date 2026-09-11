@@ -55,9 +55,9 @@ This places `torium-mcp` (and `torium`) on your PATH globally.
 torium auth setup
 ```
 
-Opens a browser for OAuth login. On macOS and Linux the redirect is captured automatically (Linux registers a temporary `.desktop` URL handler via `xdg-mime`).
+Opens a browser for OAuth login. On macOS, Linux and Windows the redirect is captured automatically (Linux registers a temporary `.desktop` URL handler via `xdg-mime`; Windows registers a temporary protocol handler in `HKEY_CURRENT_USER\Software\Classes`, no admin rights needed).
 
-On Windows, after login the browser will show an infinite loading spinner or a "can't open" error. Open the browser's developer tools (F12) → Console, find the failed redirect URL starting with `fi.tori.www...`, right-click it to copy the link address, and paste it into the terminal. **Do this quickly. The code in the URL expires in 30-60 seconds.**
+If auto-capture fails on your setup (e.g. a locked-down environment where registry/`.desktop` writes aren't allowed), run `torium auth setup --manual` instead: after login the browser will show an infinite loading spinner or a "can't open" error. Open the browser's developer tools (F12) → Console, find the failed redirect URL starting with `fi.tori.www...`, right-click it to copy the link address, and paste it into the terminal. **Do this quickly. The code in the URL expires in 30-60 seconds.**
 
 Credentials will be saved to `~/.config/torium/credentials.json`. Alternatively, set `TORI_REFRESH_TOKEN` in your environment. The MCP server will use it directly, no credentials file needed.
 

@@ -7,12 +7,17 @@ browser for login, and captures the redirect automatically.
 On Linux: registers a temporary .desktop URL scheme handler via xdg-mime,
 opens the browser for login, and captures the redirect automatically.
 
-On Windows (or with manual=True): opens the browser for login. After
+On Windows: registers a temporary custom URL protocol handler in the
+per-user registry (HKEY_CURRENT_USER\\Software\\Classes — no admin rights
+needed), opens the browser for login, and captures the redirect
+automatically, same as macOS/Linux.
+
+With manual=True (any platform): opens the browser for login. After
 logging in, the browser will show a "can't open" error. Copy the full URL
 from the address bar and paste it into the terminal.
 """
 
-import base64, hashlib, json, os, secrets, shutil, subprocess, sys, time
+import base64, hashlib, json, os, secrets, shutil, subprocess, sys, tempfile, time
 import urllib.parse, webbrowser
 
 import requests
@@ -20,7 +25,7 @@ import requests
 from .auth import CLIENT_ID, REDIRECT_URI, SPID_SERVER_CLIENT_ID, get_tori_token, save_credentials
 from .signing import gw_key
 
-CALLBACK_FILE = "/tmp/tori_auth_callback.txt"
+CALLBACK_FILE = os.path.join(tempfile.gettempdir(), "tori_auth_callback.txt")
 APP_PATH = os.path.expanduser("~/Applications/ToriAuthHelper.app")
 LSREG = ("/System/Library/Frameworks/CoreServices.framework"
          "/Frameworks/LaunchServices.framework/Support/lsregister")
@@ -31,6 +36,10 @@ LINUX_DESKTOP_DIR = os.path.expanduser("~/.local/share/applications")
 LINUX_DESKTOP_PATH = os.path.join(LINUX_DESKTOP_DIR, LINUX_DESKTOP_NAME)
 LINUX_HELPER_DIR = os.path.expanduser("~/.local/share/torium")
 LINUX_HELPER_PATH = os.path.join(LINUX_HELPER_DIR, "url-handler.sh")
+
+WINDOWS_SCHEME = f"fi.tori.www.{CLIENT_ID}"
+WINDOWS_HELPER_DIR = os.path.join(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()), "torium")
+WINDOWS_HELPER_PATH = os.path.join(WINDOWS_HELPER_DIR, "url_handler.pyw")
 
 
 def _register_url_handler():
@@ -73,7 +82,7 @@ def _register_url_handler_linux() -> None:
     os.makedirs(LINUX_DESKTOP_DIR, exist_ok=True)
 
     with open(LINUX_HELPER_PATH, "w") as f:
-        f.write(f"#!/bin/sh\nprintf '%s' \"$1\" > {CALLBACK_FILE}\n")
+        f.write(f"#!/bin/sh\nprintf '%s' \"$1\" > \"{CALLBACK_FILE}\"\n")
     os.chmod(LINUX_HELPER_PATH, 0o755)
 
     desktop = (
@@ -116,6 +125,66 @@ def _cleanup_url_handler_linux() -> None:
         )
 
 
+def _register_url_handler_windows() -> None:
+    """
+    Register a temporary custom URL protocol in HKEY_CURRENT_USER\\Software\\Classes
+    that writes the incoming URL to CALLBACK_FILE. Per-user registry — no admin
+    rights required. Mirrors the macOS .app / Linux .desktop handlers above.
+    """
+    import winreg
+
+    os.makedirs(WINDOWS_HELPER_DIR, exist_ok=True)
+    with open(WINDOWS_HELPER_PATH, "w") as f:
+        f.write(
+            "import sys, pathlib\n"
+            f"pathlib.Path({CALLBACK_FILE!r}).write_text(sys.argv[1], encoding=\"utf-8\")\n"
+        )
+
+    # Prefer pythonw.exe (no console flash) if it sits next to the running interpreter.
+    pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    interpreter = pythonw if os.path.exists(pythonw) else sys.executable
+    command = f'"{interpreter}" "{WINDOWS_HELPER_PATH}" "%1"'
+
+    try:
+        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, f"Software\\Classes\\{WINDOWS_SCHEME}")
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "URL:Torium Auth Protocol")
+        winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+        winreg.CloseKey(key)
+
+        cmd_key = winreg.CreateKey(
+            winreg.HKEY_CURRENT_USER, f"Software\\Classes\\{WINDOWS_SCHEME}\\shell\\open\\command"
+        )
+        winreg.SetValueEx(cmd_key, "", 0, winreg.REG_SZ, command)
+        winreg.CloseKey(cmd_key)
+    except Exception:
+        _cleanup_url_handler_windows()
+        raise
+
+
+def _cleanup_url_handler_windows() -> None:
+    """Best-effort: never let cleanup mask the exception that is already propagating."""
+    import winreg
+
+    for sub in (
+        f"Software\\Classes\\{WINDOWS_SCHEME}\\shell\\open\\command",
+        f"Software\\Classes\\{WINDOWS_SCHEME}\\shell\\open",
+        f"Software\\Classes\\{WINDOWS_SCHEME}\\shell",
+        f"Software\\Classes\\{WINDOWS_SCHEME}",
+    ):
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, sub)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            print(f"Warning: could not remove registry key {sub}: {e}")
+    try:
+        os.remove(WINDOWS_HELPER_PATH)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        print(f"Warning: could not remove {WINDOWS_HELPER_PATH}: {e}")
+
+
 def main(manual: bool = False) -> None:
 
     verifier = secrets.token_urlsafe(64)
@@ -145,6 +214,10 @@ def main(manual: bool = False) -> None:
                 _register_url_handler_linux()
                 handler_registered = True
                 handler_kind = "linux"
+            elif sys.platform == "win32":
+                _register_url_handler_windows()
+                handler_registered = True
+                handler_kind = "win32"
         except Exception as e:
             print(f"Warning: could not register URL handler: {e}")
 
@@ -167,6 +240,8 @@ def main(manual: bool = False) -> None:
         finally:
             if handler_kind == "linux":
                 _cleanup_url_handler_linux()
+            elif handler_kind == "win32":
+                _cleanup_url_handler_windows()
     else:
         print("Log in to Tori.fi in the browser.")
         print("After login, the browser will show a 'can't open this page' error.")
