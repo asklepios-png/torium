@@ -136,6 +136,8 @@ torium listings --facet ALL          # ACTIVE | EXPIRED | DRAFT | DISPOSED | ALL
 torium listings --limit 200          # auto-paginate beyond default 50
 torium listings stats <id>           # clicks, messages, favorites
 torium listings dispose <id>         # mark as sold (merkitse myydyksi)
+torium listings pause <id>           # hide from search results (piilota hakutuloksista)
+torium listings resume <id>          # un-hide (poista piilotus)
 torium listings delete <id>          # permanently delete (asks for confirmation)
 torium listings delete <id> --yes    # skip confirmation
 torium listings republish <id>       # republish an expired listing as Basic (free)
@@ -209,6 +211,8 @@ See [Local install (MCP and CLI)](#local-install-mcp-and-cli) above for setup. T
 | `get_create_categories` | Find category IDs by Finnish keyword (for create_listing)                  |
 | `create_listing`      | Create and submit a new free listing, with optional ToriDiili shipping        |
 | `dispose_listing`     | Mark a listing as sold                                                       |
+| `pause_listing`       | Hide a listing from search results without disposing/deleting it (reversible) |
+| `resume_listing`      | Un-hide a listing that was hidden with `pause_listing`                       |
 | `delete_listing`      | Permanently delete a listing                                                 |
 | `republish_listing`   | Republish an expired listing as Basic (free)                                 |
 | `edit_listing`        | Edit price, title, or description of a listing                               |
@@ -242,6 +246,16 @@ tier and a `city` is required (the API needs `shippingInfo.city` + `shippingInfo
 Default is `"SMALL"` (Peruspaketti). The seller's name, phone and address are taken from the
 account profile server-side, so only `city` + `postal_code` need to be supplied. Other delivery
 options: `meetup` (buyer pickup, default on), `buy_now` ("Osta heti"), and `seller_pays_shipping`.
+
+**Shipping origin vs. item location:** `create()`'s `postal_code` argument places the *listing*
+in search results (where the item physically is) and can be a different town than the seller.
+The ToriDiili shipping origin (`shippingInfo.city`/`postalCode` — where packages are actually
+picked up) is a separate pair of arguments, `city` / `shipping_postal_code`, and defaults to the
+`TORI_HOME_CITY` / `TORI_HOME_POSTAL_CODE` environment variables so it always stays the seller's
+real address regardless of where a given item is being sold from — set them once in your own
+shell profile (never commit them; this is a public repo). Without them set, `shipping=True`
+requires passing `city`/`shipping_postal_code` explicitly on every call. Override either one
+explicitly if a shipment should originate somewhere else for one listing.
 
 ### Image inspection and display
 

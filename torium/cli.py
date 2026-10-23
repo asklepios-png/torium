@@ -205,6 +205,24 @@ def listings_dispose(ad_id: int = typer.Argument(..., help="Listing ID")):
     rprint(f"[green]✓ Listing {ad_id} marked as sold.[/green]")
 
 
+@listings_app.command("pause")
+def listings_pause(ad_id: int = typer.Argument(..., help="Listing ID")):
+    """Hide a listing from search results (piilota hakutuloksista)."""
+    client = get_client()
+    with console.status(f"Hiding {ad_id} from search results..."):
+        client.listings.pause(ad_id)
+    rprint(f"[green]✓ Listing {ad_id} hidden from search results.[/green]")
+
+
+@listings_app.command("resume")
+def listings_resume(ad_id: int = typer.Argument(..., help="Listing ID")):
+    """Un-hide a listing that was hidden with 'pause' (poista piilotus)."""
+    client = get_client()
+    with console.status(f"Resuming {ad_id}..."):
+        client.listings.play(ad_id)
+    rprint(f"[green]✓ Listing {ad_id} is active in search results again.[/green]")
+
+
 @listings_app.command("delete")
 def listings_delete(
     ad_id: int = typer.Argument(..., help="Listing ID"),

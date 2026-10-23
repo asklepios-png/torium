@@ -264,6 +264,31 @@ def dispose_listing(ad_id: int) -> str:
 
 
 @mcp.tool()
+def pause_listing(ad_id: int) -> str:
+    """
+    Hide a listing from search results (piilota hakutuloksista) without marking it
+    sold or deleting it. Reversible with resume_listing. Useful for e.g. taking all
+    active listings off the market temporarily (vacation, restocking).
+
+    ad_id: The listing ID to hide.
+    """
+    _get_client().listings.pause(ad_id)
+    return f"Listing {ad_id} hidden from search results."
+
+
+@mcp.tool()
+def resume_listing(ad_id: int) -> str:
+    """
+    Un-hide a listing that was hidden with pause_listing, putting it back into
+    active search results.
+
+    ad_id: The listing ID to un-hide.
+    """
+    _get_client().listings.play(ad_id)
+    return f"Listing {ad_id} is active in search results again."
+
+
+@mcp.tool()
 def delete_listing(ad_id: int) -> str:
     """
     Permanently delete a listing. This action cannot be undone.
@@ -281,9 +306,9 @@ def republish_listing(ad_id: int) -> str:
     Reactivates an existing listing without re-uploading images or re-entering
     fields — title, description, price and images are kept as-is.
 
-    Use this for listings that have expired (status EXPIRED). For paused listings,
-    edit them or contact Tori support; for sold/disposed listings, this will not
-    revive them.
+    Use this for listings that have expired (status EXPIRED). For hidden/paused
+    listings, use resume_listing instead; for sold/disposed listings, this will
+    not revive them.
 
     ad_id: The listing ID to republish.
     """
@@ -342,6 +367,7 @@ def create_listing(
     seller_pays_shipping: bool = False,
     package_size: str = "SMALL",
     city: str = "",
+    shipping_postal_code: str = "",
 ) -> str:
     """
     Create and submit a new free (Basic) listing on Tori.fi.
@@ -350,7 +376,10 @@ def create_listing(
     description: Listing description.
     price:       Price in euros (integer). Use 0 for free items.
     category:    Tori category ID as a string. Use get_create_categories() to find IDs.
-    postal_code: Finnish postal code, e.g. "96100".
+    postal_code: Finnish postal code of where the ITEM is — used for the listing's own
+                 location/search placement. Can differ from the seller's home address
+                 below (e.g. selling something that is physically elsewhere).
+                 e.g. "96100".
     condition:   "1"=Uusi, "2"=Kuin uusi (default), "3"=Hyvä, "4"=Tyydyttävä.
     trade_type:  "1"=Myydään (default), "2"=Ostetaan, "3"=Annetaan.
     image_paths: Comma-separated absolute local file paths. Works only when the MCP
@@ -367,7 +396,12 @@ def create_listing(
                            "SMALL"  → Peruspaketti  (max 4 kg,  40×32×15 cm) [default]
                            "MEDIUM" → Iso paketti   (max 10 kg, 40×32×26 cm)
                            "LARGE"  → Jättipaketti  (max 24 kg, 100×60×60 cm)
-    city:                  Seller city, e.g. "Helsinki". Required when shipping=True.
+    city:                  Seller's home city for ToriDiili shipping. Leave empty to use
+                           the stored home address (HOME_CITY in listings.py) — it stays
+                           constant regardless of postal_code above.
+    shipping_postal_code:  Seller's home postal code for ToriDiili shipping. Leave empty
+                           to use the stored home address (HOME_POSTAL_CODE), decoupled
+                           from postal_code above for the same reason as city.
     """
     paths = [p.strip() for p in image_paths.split(",") if p.strip()] if image_paths else []
 
@@ -399,6 +433,7 @@ def create_listing(
         seller_pays_shipping=seller_pays_shipping,
         package_size=package_size,
         city=(city or None),
+        shipping_postal_code=(shipping_postal_code or None),
     )
     ad_id = result.get("ad_id")
     if result.get("is-completed"):

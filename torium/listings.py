@@ -5,7 +5,8 @@ Endpoints:
   GET  /search                          list own listings (AD-SUMMARIES)
   GET  /{adId}                          basic listing detail
   PUT  /ads/dispose/{adId}              mark as sold (AD-ACTION)
-  PUT  /ads/pause/{adId}                hide from search (AD-ACTION) [path assumed]
+  PUT  /ads/pause/{adId}                hide from search (AD-ACTION)
+  PUT  /ads/play/{adId}                 un-hide, back to active search (AD-ACTION)
   DELETE /ads/{adId}                    delete listing (AD-ACTION)
   GET  /legacy/front/summary/{adId}     statistics: clicks/messages/favorites (RECOMMERCE-STATISTICS-API)
   GET  /public/tradeState?adId={adId}   recommerce trade state (REVIEW-RUNWAY)
@@ -16,6 +17,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import os
 import re
 import requests
 import struct
@@ -41,6 +43,22 @@ _TRUST_CLIENT_ID_HEADER = {"X-Client-Id": "tori"}
 
 # Publish as Basic (free): urn:product:package-specification:10
 _PUBLISH_BASIC_BODY = b"choices=urn%3Aproduct%3Apackage-specification%3A10"
+
+# Seller's home address for ToriDiili shipping (shippingInfo.city/postalCode).
+# This is where packages are actually picked up/shipped from — it must stay
+# constant regardless of where a sold item physically is, so it is NOT derived
+# from create()'s postal_code (which places the listing in search results and
+# may be a different town if the item itself is elsewhere). The street address
+# itself is never sent here; the API fills name/phone/address in server-side
+# from the account profile (see set_delivery() docstring).
+#
+# Read from the environment (never hardcoded here — this is a public repo):
+# set TORI_HOME_CITY / TORI_HOME_POSTAL_CODE locally, e.g. in your shell
+# profile or a .env file that is NOT committed. Falls back to None, which
+# make set_delivery(shipping=True) raise unless city/shipping_postal_code
+# are passed explicitly on each call.
+HOME_CITY = os.environ.get("TORI_HOME_CITY")
+HOME_POSTAL_CODE = os.environ.get("TORI_HOME_POSTAL_CODE")
 
 # Read-back retry schedule (seconds before each attempt). Adview propagation
 # after the order/choices commit takes minutes, not seconds — verified live
@@ -299,8 +317,28 @@ class ListingsAPI:
         self._c.put(f"/ads/dispose/{ad_id}", "AD-ACTION")
 
     def pause(self, ad_id: int) -> None:
-        """Hide listing from search results. No body. Returns 204."""
+        """
+        Hide listing from search results (piilota hakutuloksista) without
+        disposing or deleting it — reversible with play(). No body. Returns 204.
+
+        Path confirmed 2026-10-23 from the web app's own per-ad action list
+        (GET /my-items/api/summary returns each summary's available actions,
+        including this exact gateway url/method) — not yet live-tested against
+        this native signed endpoint directly, only via the web app's own
+        session-cookie-authenticated proxy (PUT /my-items/api/action/items/{id}/pause).
+        """
         self._c.put(f"/ads/pause/{ad_id}", "AD-ACTION")
+
+    def play(self, ad_id: int) -> None:
+        """
+        Un-hide a paused listing — reverses pause(), back to active search.
+        No body. Returns 204.
+
+        Path confirmed 2026-10-23 the same way as pause() (web app's own
+        per-ad action list, action name "PLAY"); not yet live-tested against
+        this native signed endpoint directly.
+        """
+        self._c.put(f"/ads/play/{ad_id}", "AD-ACTION")
 
     def delete(self, ad_id: int) -> None:
         """Permanently delete a listing. No body. Returns 204."""
@@ -542,6 +580,7 @@ class ListingsAPI:
         seller_pays_shipping: bool = False,
         package_size: str = "SMALL",
         city: Optional[str] = None,
+        shipping_postal_code: Optional[str] = None,
         dry_run: bool = False,
     ) -> dict:
         """
@@ -552,14 +591,22 @@ class ListingsAPI:
             description: Listing description.
             price:       Price in euros (integer).
             category:    Tori category ID as a string, e.g. "193" (kengät).
-            postal_code: Finnish postal code, e.g. "96100".
+            postal_code: Finnish postal code of where the ITEM is — placed into the
+                listing's own location/search field. Can differ from the seller's
+                home address below (e.g. selling something that is physically
+                elsewhere).
             condition:   Condition ID: "1"=Uusi, "2"=Kuin uusi, "3"=Hyvä, "4"=Tyydyttävä.
             trade_type:  "1"=Myydään, "2"=Ostetaan, "3"=Annetaan.
             package_size: ToriDiili package size when shipping=True.
                 "SMALL"  → Peruspaketti  (max 4 kg,  40×32×15 cm)
                 "MEDIUM" → Iso paketti   (max 10 kg, 40×32×26 cm)
                 "LARGE"  → Jättipaketti  (max 24 kg, 100×60×60 cm)
-            city:        Seller city — required when shipping=True.
+            city: Seller's home city for ToriDiili shipping — defaults to HOME_CITY
+                (not the item's postal_code above) so the shipping origin stays the
+                seller's real address regardless of where the item itself is.
+            shipping_postal_code: Seller's home postal code for ToriDiili shipping —
+                defaults to HOME_POSTAL_CODE, decoupled from the item's postal_code
+                for the same reason as city.
 
         Returns the dict from the publish response: {"order-id": ..., "is-completed": True}.
         """
@@ -644,8 +691,8 @@ class ListingsAPI:
             buy_now=buy_now,
             seller_pays_shipping=seller_pays_shipping,
             package_size=package_size,
-            city=city,
-            postal_code=postal_code,
+            city=city or HOME_CITY,
+            postal_code=shipping_postal_code or HOME_POSTAL_CODE,
         )
 
         # Step 2e: fetch productcontext. iOS hits this before /order/choices;
